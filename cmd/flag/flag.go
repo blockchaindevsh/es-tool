@@ -21,3 +21,8 @@ var BlobFlag = cli.StringFlag{
 	Name:  "blob",
 	Usage: "specify blob hash",
 }
+
+var SpanFlag = cli.BoolFlag{
+	Name:  "span",
+	Usage: "specify span flag",
+}

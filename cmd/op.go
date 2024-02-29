@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -8,19 +9,26 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	mrand "math/rand"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-batcher/compressor"
+	"github.com/ethereum-optimism/optimism/op-node/rollup"
+	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
 	"github.com/ethereum-optimism/optimism/op-service/sources"
+	"github.com/ethereum-optimism/optimism/op-service/testutils"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 	"github.com/urfave/cli"
 	"github.com/zhiqiangxu/es-tool/cmd/flag"
@@ -35,6 +43,7 @@ var OPCmd = cli.Command{
 		opDeployBatchInboxCmd,
 		opPutGetCmd,
 		opGetCmd,
+		opBatchRatioCmd,
 	},
 }
 
@@ -67,6 +76,15 @@ var opGetCmd = cli.Command{
 		flag.BlobFlag,
 	},
 	Action: opGet,
+}
+
+var opBatchRatioCmd = cli.Command{
+	Name:  "batch_ratio",
+	Usage: "compute batch ratio",
+	Flags: []cli.Flag{
+		flag.SpanFlag,
+	},
+	Action: opBatchRatio,
 }
 
 func opDeployBatchInbox(ctx *cli.Context) (err error) {
@@ -379,3 +397,118 @@ var (
 	two          = big.NewInt(2)
 	minBlobTxFee = big.NewInt(params.GWei)
 )
+
+func opBatchRatio(ctx *cli.Context) (err error) {
+
+	chainID := big.NewInt(50)
+	rng := mrand.New(mrand.NewSource(0x5432177))
+
+	var spanBatchBuilder *derive.SpanBatchBuilder
+	spanType := derive.SingularBatchType
+	if ctx.Bool(flag.SpanFlag.Name) {
+		panic("span batch not supported yet")
+		spanBatchBuilder = derive.NewSpanBatchBuilder(uint64(time.Now().Unix()), chainID)
+		spanType = derive.SpanBatchType
+	}
+
+	// should keep consistent with https://github.com/ethereum-optimism/optimism/blob/c87a469d7d679e8a4efbace56c3646b925bcc009/op-batcher/compressor/cli.go#L71
+	cliConfig := compressor.CLIConfig{Kind: compressor.ShadowKind, TargetL1TxSizeBytes: 100_000, TargetNumFrames: 1, ApproxComprRatio: 0.4}
+	c, err := compressor.NewShadowCompressor(cliConfig.Config())
+	if err != nil {
+		return
+	}
+	co, err := derive.NewChannelOut(uint(spanType), c, spanBatchBuilder)
+	if err != nil {
+		return
+	}
+
+	singularBatches := RandomValidConsecutiveSingularBatches(rng, chainID, 20, 10)
+	full := -1
+	for i, singularBatch := range singularBatches {
+		_, err = co.AddSingularBatch(singularBatch, uint64(i))
+		if err == nil {
+			continue
+		}
+
+		if errors.Is(err, derive.ErrTooManyRLPBytes) || errors.Is(err, derive.CompressorFullErr) {
+			if errors.Is(err, derive.ErrTooManyRLPBytes) {
+				fmt.Println("TooManyRLPBytes")
+			}
+			if errors.Is(err, derive.CompressorFullErr) {
+				fmt.Println("CompressorFull")
+			}
+			full = i
+			break
+		}
+	}
+	if full == -1 {
+		panic("bug")
+	}
+	fmt.Println("added batches", full)
+
+	err = co.Flush()
+	if err != nil {
+		return
+	}
+
+	uncompressedBytes := 0
+	for i := 0; i < full; i++ {
+		var buf bytes.Buffer
+		if err = rlp.Encode(&buf, derive.NewBatchData(singularBatches[i])); err != nil {
+			return
+		}
+		uncompressedBytes += buf.Len()
+	}
+	fmt.Println("compressed bytes", co.ReadyBytes() /* "\ninput bytes", co.InputBytes(), */, "\nuncompressed bytes", uncompressedBytes, "\nratio", float32(co.ReadyBytes())/float32(uncompressedBytes))
+
+	return
+}
+
+func RandomValidConsecutiveSingularBatches(rng *mrand.Rand, chainID *big.Int, blockCount, txCount int) []*derive.SingularBatch {
+	l2BlockTime := uint64(2)
+
+	var singularBatches []*derive.SingularBatch
+	for i := 0; i < blockCount; i++ {
+		singularBatch := RandomSingularBatch(rng, txCount, chainID)
+		singularBatches = append(singularBatches, singularBatch)
+	}
+	l1BlockNum := rng.Uint64()
+	// make sure oldest timestamp is large enough
+	singularBatches[0].Timestamp += 256
+	for i := 0; i < blockCount; i++ {
+		originChangedBit := rng.Intn(2)
+		if originChangedBit == 1 {
+			l1BlockNum++
+			singularBatches[i].EpochHash = testutils.RandomHash(rng)
+		} else if i > 0 {
+			singularBatches[i].EpochHash = singularBatches[i-1].EpochHash
+		}
+		singularBatches[i].EpochNum = rollup.Epoch(l1BlockNum)
+		if i > 0 {
+			singularBatches[i].Timestamp = singularBatches[i-1].Timestamp + l2BlockTime
+		}
+	}
+	return singularBatches
+}
+
+func RandomSingularBatch(rng *mrand.Rand, txCount int, chainID *big.Int) *derive.SingularBatch {
+	signer := types.NewLondonSigner(chainID)
+	baseFee := big.NewInt(rng.Int63n(300_000_000_000))
+	txsEncoded := make([]hexutil.Bytes, 0, txCount)
+	// force each tx to have equal chainID
+	for i := 0; i < txCount; i++ {
+		tx := testutils.RandomTx(rng, baseFee, signer)
+		txEncoded, err := tx.MarshalBinary()
+		if err != nil {
+			panic("tx Marshal binary" + err.Error())
+		}
+		txsEncoded = append(txsEncoded, hexutil.Bytes(txEncoded))
+	}
+	return &derive.SingularBatch{
+		ParentHash:   testutils.RandomHash(rng),
+		EpochNum:     rollup.Epoch(1 + rng.Int63n(100_000_000)),
+		EpochHash:    testutils.RandomHash(rng),
+		Timestamp:    uint64(rng.Int63n(2_000_000_000)),
+		Transactions: txsEncoded,
+	}
+}
