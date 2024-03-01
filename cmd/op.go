@@ -44,6 +44,8 @@ var OPCmd = cli.Command{
 		opPutGetCmd,
 		opGetCmd,
 		opBatchRatioCmd,
+		opCompressCmd,
+		opEstimateGasCmd,
 	},
 }
 
@@ -85,6 +87,22 @@ var opBatchRatioCmd = cli.Command{
 		flag.SpanFlag,
 	},
 	Action: opBatchRatio,
+}
+
+var opCompressCmd = cli.Command{
+	Name:   "compress",
+	Usage:  "do comprest test",
+	Flags:  []cli.Flag{},
+	Action: opCompress,
+}
+
+var opEstimateGasCmd = cli.Command{
+	Name:  "estimate_gas",
+	Usage: "do gas estimation",
+	Flags: []cli.Flag{
+		flag.TPSFlag,
+	},
+	Action: opEstimateGas,
 }
 
 func opDeployBatchInbox(ctx *cli.Context) (err error) {
@@ -406,7 +424,6 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 	var spanBatchBuilder *derive.SpanBatchBuilder
 	spanType := derive.SingularBatchType
 	if ctx.Bool(flag.SpanFlag.Name) {
-		panic("span batch not supported yet")
 		spanBatchBuilder = derive.NewSpanBatchBuilder(uint64(time.Now().Unix()), chainID)
 		spanType = derive.SpanBatchType
 	}
@@ -511,4 +528,59 @@ func RandomSingularBatch(rng *mrand.Rand, txCount int, chainID *big.Int) *derive
 		Timestamp:    uint64(rng.Int63n(2_000_000_000)),
 		Transactions: txsEncoded,
 	}
+}
+
+func opCompress(ctx *cli.Context) (err error) {
+
+	chainID := big.NewInt(50)
+	rng := mrand.New(mrand.NewSource(time.Now().Unix()))
+
+	cliConfig := compressor.CLIConfig{Kind: compressor.ShadowKind, TargetL1TxSizeBytes: 100_000, TargetNumFrames: 1, ApproxComprRatio: 0.4}
+	c, err := compressor.NewShadowCompressor(cliConfig.Config())
+	if err != nil {
+		return
+	}
+
+	singularBatch := RandomSingularBatch(rng, 10, chainID)
+	var buf bytes.Buffer
+	if err = rlp.Encode(&buf, derive.NewBatchData(singularBatch)); err != nil {
+		return
+	}
+
+	_, err = c.Write(buf.Bytes())
+	if err != nil {
+		return
+	}
+
+	err = c.Flush()
+	if err != nil {
+		return
+	}
+
+	fmt.Println("uncompressed", buf.Len(), "compressed", c.Len())
+	return
+}
+
+func opEstimateGas(ctx *cli.Context) (err error) {
+	tps := ctx.Int(flag.TPSFlag.Name)
+	txCount := 2 * tps
+
+	chainID := big.NewInt(50)
+	rng := mrand.New(mrand.NewSource(0x5432177))
+
+	singularBatch := RandomSingularBatch(rng, txCount, chainID)
+
+	var buf bytes.Buffer
+	if err = rlp.Encode(&buf, derive.NewBatchData(singularBatch)); err != nil {
+		return
+	}
+	dailyBytes := buf.Len() * 24 * 1800
+
+	// dailyBlobs is also daily #tx
+	// assume frame size is MaxBlobDataSize
+	dailyBlobs := dailyBytes/eth.MaxBlobDataSize + 1
+
+	fmt.Printf("daily tx:\t%d\ndaily gas:\t%d*base_fee + %d*blob_base_fee\n", dailyBlobs, dailyBlobs*21000, dailyBlobs*params.BlobTxBlobGasPerBlob)
+
+	return
 }

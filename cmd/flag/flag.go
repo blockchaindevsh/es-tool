@@ -26,3 +26,8 @@ var SpanFlag = cli.BoolFlag{
 	Name:  "span",
 	Usage: "specify span flag",
 }
+
+var TPSFlag = cli.IntFlag{
+	Name:  "tps",
+	Usage: "specify tps flag",
+}
