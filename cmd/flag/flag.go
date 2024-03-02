@@ -27,6 +27,11 @@ var BlobFileFlag = cli.StringFlag{
 	Usage: "specify file containing a blob",
 }
 
+var TxFlag = cli.StringFlag{
+	Name:  "tx",
+	Usage: "specify tx hash",
+}
+
 var SpanFlag = cli.BoolFlag{
 	Name:  "span",
 	Usage: "specify span flag",

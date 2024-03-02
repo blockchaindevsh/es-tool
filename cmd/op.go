@@ -8,9 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
+	"os"
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-batcher/compressor"
@@ -48,6 +48,7 @@ var OPCmd = cli.Command{
 		opCompressCmd,
 		opEstimateGasCmd,
 		opDecodeBlobCmd,
+		opBlobIndexCmd,
 	},
 }
 
@@ -117,6 +118,16 @@ var opDecodeBlobCmd = cli.Command{
 		flag.BlobFileFlag,
 	},
 	Action: opDecodeBlob,
+}
+
+var opBlobIndexCmd = cli.Command{
+	Name:  "blob_index",
+	Usage: "compute blob index by tx hash",
+	Flags: []cli.Flag{
+		flag.TxFlag,
+		flag.NetworkFlag,
+	},
+	Action: opBlobIndex,
 }
 
 func opDeployBatchInbox(ctx *cli.Context) (err error) {
@@ -458,7 +469,9 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 	full := len(singularBatches) - 1
 	for i, singularBatch := range singularBatches {
 		if i > 1800 {
+			// assume we submit batches every 1800 L2 blocks, which is 1 hour
 			full = i
+			// force close the channel for submission
 			err = co.Close()
 			if err != nil {
 				return
@@ -549,6 +562,7 @@ func opCompress(ctx *cli.Context) (err error) {
 	chainID := big.NewInt(50)
 	rng := mrand.New(mrand.NewSource(time.Now().Unix()))
 
+	// should keep consistent with https://github.com/ethereum-optimism/optimism/blob/c87a469d7d679e8a4efbace56c3646b925bcc009/op-batcher/compressor/cli.go#L71
 	cliConfig := compressor.CLIConfig{Kind: compressor.ShadowKind, TargetL1TxSizeBytes: 100_000, TargetNumFrames: 1, ApproxComprRatio: 0.4}
 	c, err := compressor.NewShadowCompressor(cliConfig.Config())
 	if err != nil {
@@ -611,9 +625,9 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	fmt.Printf("basefee\tdaily gas/eth\n")
 	baseFees := []uint{20, 30, 40}
 	for _, baseFee := range baseFees {
-		dailyGas := big.NewInt(0).Add(
-			big.NewInt(0).Mul(big.NewInt(int64(dailyBlobs*callDataGas)), big.NewInt(int64(baseFee))),
-			big.NewInt(0).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(int64(baseFee))),
+		dailyGas := new(big.Int).Add(
+			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*callDataGas)), big.NewInt(int64(baseFee))),
+			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(int64(baseFee))),
 		)
 		dailyGasFloat, _ := dailyGas.Float64()
 		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
@@ -624,7 +638,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	fmt.Printf("proposer daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", 48, proposeGas, proposeGas*48)
 	fmt.Printf("basefee\tdaily gas/eth\n")
 	for _, baseFee := range baseFees {
-		dailyGas := big.NewInt(0).Mul(big.NewInt(proposeGas), big.NewInt(int64(baseFee)))
+		dailyGas := new(big.Int).Mul(big.NewInt(proposeGas), big.NewInt(int64(baseFee)))
 		dailyGasFloat, _ := dailyGas.Float64()
 		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
 	}
@@ -634,7 +648,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 
 func opDecodeBlob(ctx *cli.Context) (err error) {
 
-	blobBytes, err := ioutil.ReadFile(ctx.String(flag.BlobFileFlag.Name))
+	blobBytes, err := os.ReadFile(ctx.String(flag.BlobFileFlag.Name))
 	if err != nil {
 		return
 	}
@@ -650,6 +664,49 @@ func opDecodeBlob(ctx *cli.Context) (err error) {
 	}
 
 	fmt.Println("blob data size", len(data))
+
+	return
+}
+
+func opBlobIndex(ctx *cli.Context) (err error) {
+	client, err := ethclient.Dial(ctx.String(flag.NetworkFlag.Name))
+	if err != nil {
+		return
+	}
+
+	txHash := common.HexToHash(ctx.String(flag.TxFlag.Name))
+	tx, _, err := client.TransactionByHash(context.Background(), txHash)
+	if err != nil {
+		return
+	}
+	if len(tx.BlobHashes()) == 0 {
+		err = fmt.Errorf("tx has no blob")
+		return
+	}
+
+	receipt, err := client.TransactionReceipt(context.Background(), txHash)
+	if err != nil {
+		return
+	}
+
+	block, err := client.BlockByHash(context.Background(), receipt.BlockHash)
+	if err != nil {
+		return
+	}
+
+	startBlobIndex := 0
+	for i, transaction := range block.Transactions() {
+		if i == int(receipt.TransactionIndex) {
+			break
+		}
+		startBlobIndex += len(transaction.BlobHashes())
+	}
+
+	if len(tx.BlobHashes()) == 1 {
+		fmt.Println(startBlobIndex)
+	} else {
+		fmt.Printf("%d-%d\n", startBlobIndex, startBlobIndex+len(tx.BlobHashes())-1)
+	}
 
 	return
 }
