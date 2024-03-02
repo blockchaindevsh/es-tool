@@ -19,7 +19,12 @@ var ContractFlag = cli.StringFlag{
 
 var BlobFlag = cli.StringFlag{
 	Name:  "blob",
-	Usage: "specify blob hash",
+	Usage: "specify blob hash or blob preimage depending on context",
+}
+
+var BlobFileFlag = cli.StringFlag{
+	Name:  "blob_file",
+	Usage: "specify file containing a blob",
 }
 
 var SpanFlag = cli.BoolFlag{
@@ -30,4 +35,9 @@ var SpanFlag = cli.BoolFlag{
 var TPSFlag = cli.IntFlag{
 	Name:  "tps",
 	Usage: "specify tps flag",
+}
+
+var ESInboxFlag = cli.BoolFlag{
+	Name:  "es_inbox",
+	Usage: "specify es inbox flag",
 }

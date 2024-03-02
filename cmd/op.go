@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
 	"time"
@@ -46,6 +47,7 @@ var OPCmd = cli.Command{
 		opBatchRatioCmd,
 		opCompressCmd,
 		opEstimateGasCmd,
+		opDecodeBlobCmd,
 	},
 }
 
@@ -85,6 +87,7 @@ var opBatchRatioCmd = cli.Command{
 	Usage: "compute batch ratio",
 	Flags: []cli.Flag{
 		flag.SpanFlag,
+		flag.TPSFlag,
 	},
 	Action: opBatchRatio,
 }
@@ -101,8 +104,19 @@ var opEstimateGasCmd = cli.Command{
 	Usage: "do gas estimation",
 	Flags: []cli.Flag{
 		flag.TPSFlag,
+		flag.ESInboxFlag,
+		flag.SpanFlag,
 	},
 	Action: opEstimateGas,
+}
+
+var opDecodeBlobCmd = cli.Command{
+	Name:  "decode_blob",
+	Usage: "decode batcher blob",
+	Flags: []cli.Flag{
+		flag.BlobFileFlag,
+	},
+	Action: opDecodeBlob,
 }
 
 func opDeployBatchInbox(ctx *cli.Context) (err error) {
@@ -439,34 +453,34 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 		return
 	}
 
-	singularBatches := RandomValidConsecutiveSingularBatches(rng, chainID, 20, 10)
-	full := -1
+	singularBatches := RandomValidConsecutiveSingularBatches(rng, chainID, 200000, ctx.Int(flag.TPSFlag.Name)*2)
+	fmt.Println("#singularBatches", len(singularBatches))
+	full := len(singularBatches) - 1
 	for i, singularBatch := range singularBatches {
+		if i > 1800 {
+			full = i
+			err = co.Close()
+			if err != nil {
+				return
+			}
+			break
+		}
 		_, err = co.AddSingularBatch(singularBatch, uint64(i))
 		if err == nil {
 			continue
 		}
 
 		if errors.Is(err, derive.ErrTooManyRLPBytes) || errors.Is(err, derive.CompressorFullErr) {
-			if errors.Is(err, derive.ErrTooManyRLPBytes) {
-				fmt.Println("TooManyRLPBytes")
-			}
-			if errors.Is(err, derive.CompressorFullErr) {
-				fmt.Println("CompressorFull")
-			}
+			fmt.Println(err)
 			full = i
 			break
 		}
+		if err != nil {
+			return
+		}
 	}
-	if full == -1 {
-		panic("bug")
-	}
-	fmt.Println("added batches", full)
 
-	err = co.Flush()
-	if err != nil {
-		return
-	}
+	fmt.Println("added batches", full+1)
 
 	uncompressedBytes := 0
 	for i := 0; i < full; i++ {
@@ -574,13 +588,68 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	if err = rlp.Encode(&buf, derive.NewBatchData(singularBatch)); err != nil {
 		return
 	}
-	dailyBytes := buf.Len() * 24 * 1800
+	dailyBytes := float64(buf.Len() * 24 * 1800)
+	if tps == 0 {
+		if ctx.Bool(flag.SpanFlag.Name) {
+			dailyBytes *= 0.002
+		} else {
+			dailyBytes *= 0.63
+		}
+	}
 
 	// dailyBlobs is also daily #tx
 	// assume frame size is MaxBlobDataSize
-	dailyBlobs := dailyBytes/eth.MaxBlobDataSize + 1
+	dailyBlobs := int64(dailyBytes)/eth.MaxBlobDataSize + 1
 
-	fmt.Printf("daily tx:\t%d\ndaily gas:\t%d*base_fee + %d*blob_base_fee\n", dailyBlobs, dailyBlobs*21000, dailyBlobs*params.BlobTxBlobGasPerBlob)
+	callDataGas := int64(21000)
+	if ctx.Bool(flag.ESInboxFlag.Name) {
+		callDataGas = 117_258 // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
+	}
+	fmt.Printf("batcher daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n", dailyBlobs, callDataGas, params.BlobTxBlobGasPerBlob, dailyBlobs*callDataGas, dailyBlobs*params.BlobTxBlobGasPerBlob)
+
+	fmt.Println("--------")
+	fmt.Printf("basefee\tdaily gas/eth\n")
+	baseFees := []uint{20, 30, 40}
+	for _, baseFee := range baseFees {
+		dailyGas := big.NewInt(0).Add(
+			big.NewInt(0).Mul(big.NewInt(int64(dailyBlobs*callDataGas)), big.NewInt(int64(baseFee))),
+			big.NewInt(0).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(int64(baseFee))),
+		)
+		dailyGasFloat, _ := dailyGas.Float64()
+		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
+	}
+	fmt.Println("--------")
+
+	proposeGas := int64(87789)
+	fmt.Printf("proposer daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", 48, proposeGas, proposeGas*48)
+	fmt.Printf("basefee\tdaily gas/eth\n")
+	for _, baseFee := range baseFees {
+		dailyGas := big.NewInt(0).Mul(big.NewInt(proposeGas), big.NewInt(int64(baseFee)))
+		dailyGasFloat, _ := dailyGas.Float64()
+		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
+	}
+
+	return
+}
+
+func opDecodeBlob(ctx *cli.Context) (err error) {
+
+	blobBytes, err := ioutil.ReadFile(ctx.String(flag.BlobFileFlag.Name))
+	if err != nil {
+		return
+	}
+	var blob eth.Blob
+	err = blob.UnmarshalText(blobBytes)
+	if err != nil {
+		return
+	}
+
+	data, err := blob.ToData()
+	if err != nil {
+		return
+	}
+
+	fmt.Println("blob data size", len(data))
 
 	return
 }
