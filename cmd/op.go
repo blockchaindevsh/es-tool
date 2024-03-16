@@ -49,6 +49,7 @@ var OPCmd = cli.Command{
 		opEstimateGasCmd,
 		opDecodeBlobCmd,
 		opBlobIndexCmd,
+		opTxSizeCmd,
 	},
 }
 
@@ -128,6 +129,13 @@ var opBlobIndexCmd = cli.Command{
 		flag.NetworkFlag,
 	},
 	Action: opBlobIndex,
+}
+
+var opTxSizeCmd = cli.Command{
+	Name:   "tx_size",
+	Usage:  "show random tx size",
+	Flags:  []cli.Flag{},
+	Action: opTxSize,
 }
 
 func opDeployBatchInbox(ctx *cli.Context) (err error) {
@@ -708,5 +716,21 @@ func opBlobIndex(ctx *cli.Context) (err error) {
 		fmt.Printf("%d-%d\n", startBlobIndex, startBlobIndex+len(tx.BlobHashes())-1)
 	}
 
+	return
+}
+
+func opTxSize(ctx *cli.Context) (err error) {
+	chainID := big.NewInt(50)
+	rng := mrand.New(mrand.NewSource(0x5432177))
+	signer := types.NewLondonSigner(chainID)
+	baseFee := big.NewInt(rng.Int63n(300_000_000_000))
+
+	tx := testutils.RandomTx(rng, baseFee, signer)
+	txEncoded, err := tx.MarshalBinary()
+	if err != nil {
+		return
+	}
+
+	fmt.Println("encoded", len(txEncoded), "data", len(tx.Data()))
 	return
 }
