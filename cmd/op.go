@@ -496,9 +496,7 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 			full = i
 			break
 		}
-		if err != nil {
-			return
-		}
+		return
 	}
 
 	fmt.Println("added batches", full+1)
@@ -611,6 +609,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 		return
 	}
 	dailyBytes := float64(buf.Len() * 24 * 1800)
+	// we ignore the compressing ratio since it seems not so effective
 	if tps == 0 {
 		if ctx.Bool(flag.SpanFlag.Name) {
 			dailyBytes *= 0.002
@@ -627,7 +626,11 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	if ctx.Bool(flag.ESInboxFlag.Name) {
 		callDataGas = 117_258 // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
 	}
-	fmt.Printf("batcher daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n", dailyBlobs, callDataGas, params.BlobTxBlobGasPerBlob, dailyBlobs*callDataGas, dailyBlobs*params.BlobTxBlobGasPerBlob)
+	fmt.Printf(
+		"batcher daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n",
+		dailyBlobs,
+		callDataGas, params.BlobTxBlobGasPerBlob,
+		dailyBlobs*callDataGas, dailyBlobs*params.BlobTxBlobGasPerBlob)
 
 	fmt.Println("--------")
 	fmt.Printf("basefee\tdaily gas/eth\n")
