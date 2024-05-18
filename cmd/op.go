@@ -108,6 +108,8 @@ var opEstimateGasCmd = cli.Command{
 		flag.TPSFlag,
 		flag.ESInboxFlag,
 		flag.SpanFlag,
+		flag.DailyProposeTimesFlag,
+		flag.BlobBaseFeeFlag,
 	},
 	Action: opEstimateGas,
 }
@@ -633,12 +635,13 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 		dailyBlobs*callDataGas, dailyBlobs*params.BlobTxBlobGasPerBlob)
 
 	fmt.Println("--------")
-	fmt.Printf("basefee\tdaily gas/eth\n")
+	blobBaseFee := ctx.Int64(flag.BlobBaseFeeFlag.Name)
+	fmt.Printf("basefee\tdaily gas/eth (blob_base_fee = %d)\n", blobBaseFee)
 	baseFees := []uint{20, 30, 40}
 	for _, baseFee := range baseFees {
 		dailyGas := new(big.Int).Add(
 			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*callDataGas)), big.NewInt(int64(baseFee))),
-			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(int64(baseFee))),
+			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(blobBaseFee)),
 		)
 		dailyGasFloat, _ := dailyGas.Float64()
 		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
@@ -646,10 +649,12 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	fmt.Println("--------")
 
 	proposeGas := int64(87789)
-	fmt.Printf("proposer daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", 48, proposeGas, proposeGas*48)
+	dailyPropose := ctx.Int64(flag.DailyProposeTimesFlag.Name)
+	fmt.Printf("proposer daily tx:\t%d\nproposer per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", dailyPropose, proposeGas, proposeGas*dailyPropose)
+	fmt.Println("--------")
 	fmt.Printf("basefee\tdaily gas/eth\n")
 	for _, baseFee := range baseFees {
-		dailyGas := new(big.Int).Mul(big.NewInt(proposeGas), big.NewInt(int64(baseFee)))
+		dailyGas := new(big.Int).Mul(big.NewInt(proposeGas*dailyPropose), big.NewInt(int64(baseFee)))
 		dailyGasFloat, _ := dailyGas.Float64()
 		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
 	}

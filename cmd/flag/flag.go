@@ -42,6 +42,18 @@ var TPSFlag = cli.IntFlag{
 	Usage: "specify tps flag",
 }
 
+var DailyProposeTimesFlag = cli.IntFlag{
+	Name:     "daily_propose",
+	Usage:    "specify daily propose times flag",
+	Required: true,
+}
+
+var BlobBaseFeeFlag = cli.IntFlag{
+	Name:     "blob_base_fee",
+	Usage:    "specify blob base fee flag",
+	Required: true,
+}
+
 var ESInboxFlag = cli.BoolFlag{
 	Name:  "es_inbox",
 	Usage: "specify es inbox flag",
