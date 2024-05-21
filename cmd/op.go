@@ -700,8 +700,9 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 
 	drawSharp()
 	fmt.Println("\n######Average l2 tx cost#######")
-	fmt.Printf("\nbasefee\t\tcost/eth\n")
 	dailyTxCount := tps * 24 * 3600
+	fmt.Printf("\ndailyTxCount:\t%d ( tps * 24 * 3600)\naverage cost:\t(batcherDailyCost + proposerDailyCost)/dailyTxCount\n", dailyTxCount)
+	fmt.Printf("\nbasefee\t\tcost/eth\n")
 	for _, baseFee := range baseFees {
 		batcherDailyCost := batcherDailyCost(baseFee)
 		batcherDailyCostFloat, _ := batcherDailyCost.Float64()
