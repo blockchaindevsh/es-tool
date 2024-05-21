@@ -611,6 +611,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 		return
 	}
 	dailyBytes := float64(buf.Len() * 24 * 1800)
+
 	// we ignore the compressing ratio since it seems not so effective
 	if tps == 0 {
 		if ctx.Bool(flag.SpanFlag.Name) {
@@ -739,6 +740,6 @@ func opTxSize(ctx *cli.Context) (err error) {
 		return
 	}
 
-	fmt.Println("encoded", len(txEncoded), "data", len(tx.Data()))
+	fmt.Println("encoded", len(txEncoded), "data", len(tx.Data()), "type", tx.Type())
 	return
 }
