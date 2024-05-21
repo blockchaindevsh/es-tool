@@ -90,14 +90,17 @@ var opBatchRatioCmd = cli.Command{
 	Flags: []cli.Flag{
 		flag.SpanFlag,
 		flag.TPSFlag,
+		flag.TxDataSizeFlag,
 	},
 	Action: opBatchRatio,
 }
 
 var opCompressCmd = cli.Command{
-	Name:   "compress",
-	Usage:  "do comprest test",
-	Flags:  []cli.Flag{},
+	Name:  "compress",
+	Usage: "do comprest test",
+	Flags: []cli.Flag{
+		flag.TxDataSizeFlag,
+	},
 	Action: opCompress,
 }
 
@@ -110,6 +113,8 @@ var opEstimateGasCmd = cli.Command{
 		flag.SpanFlag,
 		flag.DailyProposeTimesFlag,
 		flag.BlobBaseFeeFlag,
+		flag.TxDataSizeFlag,
+		flag.TxBlobsFlag,
 	},
 	Action: opEstimateGas,
 }
@@ -136,7 +141,7 @@ var opBlobIndexCmd = cli.Command{
 var opTxSizeCmd = cli.Command{
 	Name:   "tx_size",
 	Usage:  "show random tx size",
-	Flags:  []cli.Flag{},
+	Flags:  []cli.Flag{flag.TxDataSizeFlag},
 	Action: opTxSize,
 }
 
@@ -249,7 +254,7 @@ func opPutGet(ctx *cli.Context) (err error) {
 	}
 
 	var (
-		blobHashes   = []eth.IndexedBlobHash{eth.IndexedBlobHash{Hash: tx.BlobHashes()[0]}}
+		blobHashes   = []eth.IndexedBlobHash{{Hash: tx.BlobHashes()[0]}}
 		blobSidecars []*eth.BlobSidecar
 	)
 
@@ -287,7 +292,7 @@ func opGet(ctx *cli.Context) (err error) {
 		return
 	}
 	var (
-		blobHashes   = []eth.IndexedBlobHash{eth.IndexedBlobHash{Hash: blobHash}}
+		blobHashes   = []eth.IndexedBlobHash{{Hash: blobHash}}
 		blobSidecars []*eth.BlobSidecar
 	)
 
@@ -315,7 +320,7 @@ func calcBlobHash(blob eth.Blob) common.Hash {
 	rawBlob := *blob.KZGBlob()
 	commitment, err := kzg4844.BlobToCommitment(rawBlob)
 	if err != nil {
-		panic(fmt.Errorf("cannot compute KZG commitment of blob %d in tx candidate: %w", err))
+		panic(fmt.Errorf("cannot compute KZG commitment of blob in tx candidate: %w", err))
 	}
 
 	return eth.KZGToVersionedHash(commitment)
@@ -441,7 +446,7 @@ func finishBlobTx(message *types.BlobTx, chainID, tip, fee, blobFee, value *big.
 		return fmt.Errorf("BlobFeeCap overflow")
 	}
 	if message.Value, o = uint256.FromBig(value); o {
-		return fmt.Errorf("Value overflow")
+		return fmt.Errorf("value overflow")
 	}
 	return nil
 }
@@ -474,7 +479,7 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 		return
 	}
 
-	singularBatches := RandomValidConsecutiveSingularBatches(rng, chainID, 200000, ctx.Int(flag.TPSFlag.Name)*2)
+	singularBatches := RandomValidConsecutiveSingularBatches(rng, chainID, 200000, ctx.Int(flag.TPSFlag.Name)*2, ctx.Int(flag.TxDataSizeFlag.Name))
 	fmt.Println("#singularBatches", len(singularBatches))
 	full := len(singularBatches) - 1
 	for i, singularBatch := range singularBatches {
@@ -516,12 +521,12 @@ func opBatchRatio(ctx *cli.Context) (err error) {
 	return
 }
 
-func RandomValidConsecutiveSingularBatches(rng *mrand.Rand, chainID *big.Int, blockCount, txCount int) []*derive.SingularBatch {
+func RandomValidConsecutiveSingularBatches(rng *mrand.Rand, chainID *big.Int, blockCount, txCount, txDataSize int) []*derive.SingularBatch {
 	l2BlockTime := uint64(2)
 
 	var singularBatches []*derive.SingularBatch
 	for i := 0; i < blockCount; i++ {
-		singularBatch := RandomSingularBatch(rng, txCount, chainID)
+		singularBatch := RandomSingularBatch(rng, txCount, chainID, txDataSize)
 		singularBatches = append(singularBatches, singularBatch)
 	}
 	l1BlockNum := rng.Uint64()
@@ -543,13 +548,27 @@ func RandomValidConsecutiveSingularBatches(rng *mrand.Rand, chainID *big.Int, bl
 	return singularBatches
 }
 
-func RandomSingularBatch(rng *mrand.Rand, txCount int, chainID *big.Int) *derive.SingularBatch {
+func randomTxNonAccesslist(rng *mrand.Rand, baseFee *big.Int, signer types.Signer, size *int) *types.Transaction {
+	var tx *types.Transaction
+	for {
+		if size == nil {
+			tx = testutils.RandomTx(rng, baseFee, signer)
+		} else {
+			tx = testutils.RandomTxWithSize(rng, baseFee, signer, *size)
+		}
+		if tx.Type() != types.AccessListTxType {
+			return tx
+		}
+	}
+}
+
+func RandomSingularBatch(rng *mrand.Rand, txCount int, chainID *big.Int, txDataSize int) *derive.SingularBatch {
 	signer := types.NewLondonSigner(chainID)
 	baseFee := big.NewInt(rng.Int63n(300_000_000_000))
 	txsEncoded := make([]hexutil.Bytes, 0, txCount)
 	// force each tx to have equal chainID
 	for i := 0; i < txCount; i++ {
-		tx := testutils.RandomTx(rng, baseFee, signer)
+		tx := randomTxNonAccesslist(rng, baseFee, signer, &txDataSize)
 		txEncoded, err := tx.MarshalBinary()
 		if err != nil {
 			panic("tx Marshal binary" + err.Error())
@@ -577,7 +596,7 @@ func opCompress(ctx *cli.Context) (err error) {
 		return
 	}
 
-	singularBatch := RandomSingularBatch(rng, 10, chainID)
+	singularBatch := RandomSingularBatch(rng, 10, chainID, ctx.Int(flag.TxDataSizeFlag.Name))
 	var buf bytes.Buffer
 	if err = rlp.Encode(&buf, derive.NewBatchData(singularBatch)); err != nil {
 		return
@@ -603,14 +622,17 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 
 	chainID := big.NewInt(50)
 	rng := mrand.New(mrand.NewSource(0x5432177))
+	txDataSize := ctx.Int(flag.TxDataSizeFlag.Name)
+	blobsPerTx := ctx.Int(flag.TxBlobsFlag.Name)
 
-	singularBatch := RandomSingularBatch(rng, txCount, chainID)
+	singularBatch := RandomSingularBatch(rng, txCount, chainID, txDataSize)
 
 	var buf bytes.Buffer
 	if err = rlp.Encode(&buf, derive.NewBatchData(singularBatch)); err != nil {
 		return
 	}
-	dailyBytes := float64(buf.Len() * 24 * 1800)
+	singularBatchSize := buf.Len()
+	dailyBytes := float64(singularBatchSize * 24 * 1800)
 
 	// we ignore the compressing ratio since it seems not so effective
 	if tps == 0 {
@@ -621,45 +643,73 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 		}
 	}
 
-	// dailyBlobs is also daily #tx
 	// assume frame size is MaxBlobDataSize
-	dailyBlobs := int64(dailyBytes)/eth.MaxBlobDataSize + 1
+	dailyBlobTx := int64(dailyBytes)/int64(blobsPerTx*eth.MaxBlobDataSize) + 1
 
 	callDataGas := int64(21000)
 	if ctx.Bool(flag.ESInboxFlag.Name) {
 		callDataGas = 117_258 // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
 	}
+	fmt.Println("######Batcher#######")
 	fmt.Printf(
-		"batcher daily tx:\t%d\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n",
-		dailyBlobs,
+		"\nsingularBatchSize:\t%d\nbatcher daily tx:\t%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n",
+		singularBatchSize,
+		dailyBlobTx,
 		callDataGas, params.BlobTxBlobGasPerBlob,
-		dailyBlobs*callDataGas, dailyBlobs*params.BlobTxBlobGasPerBlob)
+		dailyBlobTx*callDataGas, dailyBlobTx*params.BlobTxBlobGasPerBlob)
 
-	fmt.Println("--------")
-	blobBaseFee := ctx.Int64(flag.BlobBaseFeeFlag.Name)
-	fmt.Printf("basefee\tdaily gas/eth (blob_base_fee = %d)\n", blobBaseFee)
-	baseFees := []uint{20, 30, 40}
-	for _, baseFee := range baseFees {
-		dailyGas := new(big.Int).Add(
-			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*callDataGas)), big.NewInt(int64(baseFee))),
-			new(big.Int).Mul(big.NewInt(int64(dailyBlobs*params.BlobTxBlobGasPerBlob)), big.NewInt(blobBaseFee)),
-		)
-		dailyGasFloat, _ := dailyGas.Float64()
-		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
+	drawLine := func() {
+		fmt.Println("------------------------------------------------")
 	}
-	fmt.Println("--------")
+	drawSharp := func() {
+		fmt.Println("\n###########################")
+	}
+	drawLine()
+	blobBaseFee := ctx.Int64(flag.BlobBaseFeeFlag.Name)
+	fmt.Printf("basefee\t\tdaily gas/eth (blob_base_fee = %d)\n", blobBaseFee)
+	baseFees := []uint{20, 30, 40}
+	batcherDailyCost := func(baseFee uint) *big.Int {
+		dailyCost := new(big.Int).Add(
+			new(big.Int).Mul(big.NewInt(int64(dailyBlobTx*callDataGas)), big.NewInt(int64(baseFee))),
+			new(big.Int).Mul(big.NewInt(int64(dailyBlobTx*params.BlobTxBlobGasPerBlob)*int64(blobsPerTx)), big.NewInt(blobBaseFee)),
+		)
+		return dailyCost
+	}
+	for _, baseFee := range baseFees {
+		dailyCost := batcherDailyCost(baseFee)
+		dailyCostFloat, _ := dailyCost.Float64()
+		fmt.Printf("%dGwei\t\t%f\n", baseFee, dailyCostFloat/1e9)
+	}
+	drawSharp()
+	fmt.Println("\n######Proposer#######")
 
 	proposeGas := int64(87789)
 	dailyPropose := ctx.Int64(flag.DailyProposeTimesFlag.Name)
-	fmt.Printf("proposer daily tx:\t%d\nproposer per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", dailyPropose, proposeGas, proposeGas*dailyPropose)
-	fmt.Println("--------")
-	fmt.Printf("basefee\tdaily gas/eth\n")
+	fmt.Printf("\nproposer daily tx:\t%d\nproposer per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", dailyPropose, proposeGas, proposeGas*dailyPropose)
+	drawLine()
+	fmt.Printf("basefee\t\tdaily gas/eth\n")
+	proposerDailyCost := func(baseFee uint) *big.Int {
+		dailyCost := new(big.Int).Mul(big.NewInt(proposeGas*dailyPropose), big.NewInt(int64(baseFee)))
+		return dailyCost
+	}
 	for _, baseFee := range baseFees {
-		dailyGas := new(big.Int).Mul(big.NewInt(proposeGas*dailyPropose), big.NewInt(int64(baseFee)))
-		dailyGasFloat, _ := dailyGas.Float64()
-		fmt.Printf("%dGwei\t%f\n", baseFee, dailyGasFloat/1e9)
+		dailyCost := proposerDailyCost(baseFee)
+		dailyCostFloat, _ := dailyCost.Float64()
+		fmt.Printf("%dGwei\t\t%f\n", baseFee, dailyCostFloat/1e9)
 	}
 
+	drawSharp()
+	fmt.Println("\n######Average l2 tx cost#######")
+	fmt.Printf("\nbasefee\t\tcost/eth\n")
+	dailyTxCount := tps * 24 * 3600
+	for _, baseFee := range baseFees {
+		batcherDailyCost := batcherDailyCost(baseFee)
+		batcherDailyCostFloat, _ := batcherDailyCost.Float64()
+		proposerDailyCost := proposerDailyCost(baseFee)
+		proposerDailyCostFloat, _ := proposerDailyCost.Float64()
+		fmt.Printf("%dGwei\t\t%f\n", baseFee, (batcherDailyCostFloat+proposerDailyCostFloat)/1e9/float64(dailyTxCount))
+	}
+	drawSharp()
 	return
 }
 
@@ -733,8 +783,9 @@ func opTxSize(ctx *cli.Context) (err error) {
 	rng := mrand.New(mrand.NewSource(0x5432177))
 	signer := types.NewLondonSigner(chainID)
 	baseFee := big.NewInt(rng.Int63n(300_000_000_000))
+	txDataSize := ctx.Int(flag.TxDataSizeFlag.Name)
 
-	tx := testutils.RandomTx(rng, baseFee, signer)
+	tx := randomTxNonAccesslist(rng, baseFee, signer, &txDataSize)
 	txEncoded, err := tx.MarshalBinary()
 	if err != nil {
 		return

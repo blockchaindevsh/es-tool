@@ -58,3 +58,15 @@ var ESInboxFlag = cli.BoolFlag{
 	Name:  "es_inbox",
 	Usage: "specify es inbox flag",
 }
+
+var TxDataSizeFlag = cli.IntFlag{
+	Name:     "txdata_size",
+	Usage:    "specify tx data size",
+	Required: true,
+}
+
+var TxBlobsFlag = cli.IntFlag{
+	Name:     "tx_blobs",
+	Usage:    "specify #blobs of a single blob tx",
+	Required: true,
+}

@@ -334,8 +334,8 @@ github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo
 github.com/yusufpapurcu/wmi v1.2.4/go.mod h1:SBZ9tNy3G9/m5Oi98Zks0QjeHVDvuK0qfxQmPyzfmi0=
 github.com/zhiqiangxu/multicall v0.0.0-20240221094243-38614cbd4d3a h1:hgdqWrhDp2ayGAx2KW6gpq5Bc4gXQoyuAsajvBbfeG4=
 github.com/zhiqiangxu/multicall v0.0.0-20240221094243-38614cbd4d3a/go.mod h1:bq7IvqgoMiYBeZ67pAdgr1IUZ17whoGiwhr5+VjUDZs=
-github.com/zhiqiangxu/optimism v0.0.0-20240221094547-5a4503952731 h1:wEOdgZG4TpXeL9DlsyGhsP5j/P/UiWReC6ENcJByzzc=
-github.com/zhiqiangxu/optimism v0.0.0-20240221094547-5a4503952731/go.mod h1:X8CBVYm3mHijCtaYX0DvtWn+8VdcPA8jLNDrsp9oSG4=
+github.com/zhiqiangxu/optimism v0.0.0-20240521125808-95900a16297d h1:i7IyDaf572Z9L6AUVCCd/wfpnZyT6JdvwfdJCIEewk8=
+github.com/zhiqiangxu/optimism v0.0.0-20240521125808-95900a16297d/go.mod h1:X8CBVYm3mHijCtaYX0DvtWn+8VdcPA8jLNDrsp9oSG4=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
 go.uber.org/zap v1.26.0 h1:sI7k6L95XOKS281NhVKOFCUNIvv9e0w4BF8N3u+tCRo=
