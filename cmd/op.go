@@ -652,7 +652,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	}
 	fmt.Println("######Batcher#######")
 	fmt.Printf(
-		"\nsingularBatchSize:\t%d\nbatcher daily tx:\t%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee\n",
+		"\nsingularBatchSize:\t%d\nbatcher daily tx:\t%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee*tx_blobs\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee*tx_blobs\n",
 		singularBatchSize,
 		dailyBlobTx,
 		callDataGas, params.BlobTxBlobGasPerBlob,
