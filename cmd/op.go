@@ -648,15 +648,21 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 
 	callDataGas := int64(21000)
 	if ctx.Bool(flag.ESInboxFlag.Name) {
-		callDataGas = 117_258 // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
+		callDataGas = 117_258                      // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
+		callDataGas += int64(blobsPerTx-1) * 50000 // 每多一个～50000左右gas成本
 	}
 	fmt.Println("######Batcher#######")
 	fmt.Printf(
-		"\nsingularBatchSize:\t%d\nbatcher daily tx:\t%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )\nbatcher per tx gas:\t%d*base_fee + %d*blob_base_fee*tx_blobs\nbatcher daily gas:\t%d*base_fee + %d*blob_base_fee*tx_blobs\n",
+		`
+singularBatchSize:	%d
+batcher daily tx:	%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )
+batcher per tx gas:	(%d + 50000*tx_blobs)*base_fee + %d*blob_base_fee*tx_blobs
+batcher daily gas:	(%d + %d*tx_blobs)*base_fee + %d*blob_base_fee*tx_blobs
+`,
 		singularBatchSize,
 		dailyBlobTx,
-		callDataGas, params.BlobTxBlobGasPerBlob,
-		dailyBlobTx*callDataGas, dailyBlobTx*params.BlobTxBlobGasPerBlob)
+		117_258-50000, params.BlobTxBlobGasPerBlob,
+		dailyBlobTx*(117_258-50000), 50000*dailyBlobTx, dailyBlobTx*params.BlobTxBlobGasPerBlob)
 
 	drawLine := func() {
 		fmt.Println("------------------------------------------------")
@@ -666,7 +672,8 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	}
 	drawLine()
 	blobBaseFee := ctx.Int64(flag.BlobBaseFeeFlag.Name)
-	fmt.Printf("basefee\t\tdaily gas/eth (blob_base_fee = %d)\n", blobBaseFee)
+	fmt.Printf(`basefee		daily gas/eth (blob_base_fee = %d)
+`, blobBaseFee)
 	baseFees := []uint{20, 30, 40}
 	batcherDailyCost := func(baseFee uint) *big.Int {
 		dailyCost := new(big.Int).Add(
@@ -685,7 +692,11 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 
 	proposeGas := int64(87789)
 	dailyPropose := ctx.Int64(flag.DailyProposeTimesFlag.Name)
-	fmt.Printf("\nproposer daily tx:\t%d\nproposer per tx gas:\t%d*base_fee\nproposer daily gas:\t%d*base_fee\n", dailyPropose, proposeGas, proposeGas*dailyPropose)
+	fmt.Printf(`
+proposer daily tx:	%d
+proposer per tx gas:	%d*base_fee
+proposer daily gas:	%d*base_fee
+`, dailyPropose, proposeGas, proposeGas*dailyPropose)
 	drawLine()
 	fmt.Printf("basefee\t\tdaily gas/eth\n")
 	proposerDailyCost := func(baseFee uint) *big.Int {
@@ -701,7 +712,10 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	drawSharp()
 	fmt.Println("\n######Average l2 tx cost#######")
 	dailyTxCount := tps * 24 * 3600
-	fmt.Printf("\ndailyTxCount:\t%d ( tps * 24 * 3600)\naverage cost:\t(batcherDailyCost + proposerDailyCost)/dailyTxCount\n", dailyTxCount)
+	fmt.Printf(`
+dailyTxCount:	%d ( tps * 24 * 3600)
+average cost:	(batcherDailyCost + proposerDailyCost)/dailyTxCount
+`, dailyTxCount)
 	fmt.Printf("\nbasefee\t\tcost/eth\n")
 	for _, baseFee := range baseFees {
 		batcherDailyCost := batcherDailyCost(baseFee)
