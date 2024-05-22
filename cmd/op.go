@@ -678,7 +678,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	for _, baseFee := range baseFees {
 		dailyCost := batcherDailyCost(baseFee)
 		dailyCostFloat, _ := dailyCost.Float64()
-		fmt.Printf("%dGwei\t\t%f\n", baseFee, dailyCostFloat/1e9)
+		fmt.Printf("%dGwei\t\t%.10f\n", baseFee, dailyCostFloat/1e9)
 	}
 	drawSharp()
 	fmt.Println("\n######Proposer#######")
@@ -695,7 +695,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	for _, baseFee := range baseFees {
 		dailyCost := proposerDailyCost(baseFee)
 		dailyCostFloat, _ := dailyCost.Float64()
-		fmt.Printf("%dGwei\t\t%f\n", baseFee, dailyCostFloat/1e9)
+		fmt.Printf("%dGwei\t\t%.10f\n", baseFee, dailyCostFloat/1e9)
 	}
 
 	drawSharp()
@@ -708,7 +708,7 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 		batcherDailyCostFloat, _ := batcherDailyCost.Float64()
 		proposerDailyCost := proposerDailyCost(baseFee)
 		proposerDailyCostFloat, _ := proposerDailyCost.Float64()
-		fmt.Printf("%dGwei\t\t%f\n", baseFee, (batcherDailyCostFloat+proposerDailyCostFloat)/1e9/float64(dailyTxCount))
+		fmt.Printf("%dGwei\t\t%.10f\n", baseFee, (batcherDailyCostFloat+proposerDailyCostFloat)/1e9/float64(dailyTxCount))
 	}
 	drawSharp()
 	return
