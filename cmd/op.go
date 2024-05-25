@@ -647,22 +647,37 @@ func opEstimateGas(ctx *cli.Context) (err error) {
 	dailyBlobTx := int64(dailyBytes)/int64(blobsPerTx*eth.MaxBlobDataSize) + 1
 
 	callDataGas := int64(21000)
-	if ctx.Bool(flag.ESInboxFlag.Name) {
+	esInbox := ctx.Bool(flag.ESInboxFlag.Name)
+	if esInbox {
 		callDataGas = 117_258                      // FYI https://sepolia.etherscan.io/tx/0xed09f77fbd3cb87874d3ea06ec7bb84e784095ac2cbdb44a484f6ee5532d732d
 		callDataGas += int64(blobsPerTx-1) * 50000 // 每多一个～50000左右gas成本
 	}
 	fmt.Println("######Batcher#######")
-	fmt.Printf(
-		`
+	if esInbox {
+		fmt.Printf(
+			`
 singularBatchSize:	%d
 batcher daily tx:	%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )
 batcher per tx gas:	(%d + 50000*tx_blobs)*base_fee + %d*blob_base_fee*tx_blobs
 batcher daily gas:	(%d + %d*tx_blobs)*base_fee + %d*blob_base_fee*tx_blobs
 `,
-		singularBatchSize,
-		dailyBlobTx,
-		117_258-50000, params.BlobTxBlobGasPerBlob,
-		dailyBlobTx*(117_258-50000), 50000*dailyBlobTx, dailyBlobTx*params.BlobTxBlobGasPerBlob)
+			singularBatchSize,
+			dailyBlobTx,
+			117_258-50000, params.BlobTxBlobGasPerBlob,
+			dailyBlobTx*(117_258-50000), 50000*dailyBlobTx, dailyBlobTx*params.BlobTxBlobGasPerBlob)
+	} else {
+		fmt.Printf(
+			`
+singularBatchSize:	%d
+batcher daily tx:	%d ( ~ singularBatchSize * 24 * 1800 / tx_blobs / MaxBlobDataSize + 1 )
+batcher per tx gas:	21000*base_fee + %d*blob_base_fee*tx_blobs
+batcher daily gas:	%d*base_fee + %d*blob_base_fee*tx_blobs
+`,
+			singularBatchSize,
+			dailyBlobTx,
+			params.BlobTxBlobGasPerBlob,
+			dailyBlobTx*21000, dailyBlobTx*params.BlobTxBlobGasPerBlob)
+	}
 
 	drawLine := func() {
 		fmt.Println("------------------------------------------------")
